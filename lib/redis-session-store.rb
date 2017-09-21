@@ -66,7 +66,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
 
     !!(
       value && !value.empty? &&
-      redis.exists(prefixed(value))
+      redis.exists(prefixed(value, env))
     )
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e, env, value) if on_redis_down
@@ -82,12 +82,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
     end
   end
 
-  def prefixed(sid)
-    "#{default_options[:key_prefix]}#{sid}"
+  def prefixed(sid, env)
+    "#{default_options[:key_prefix]}#{env.remote_ip}:#{sid}"
   end
 
   def get_session(env, sid)
-    unless sid && (session = load_session_from_redis(sid))
+    unless sid && (session = load_session_from_redis(sid, env))
       sid = generate_sid
       session = {}
     end
@@ -99,12 +99,12 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   end
   alias find_session get_session
 
-  def load_session_from_redis(sid)
-    data = redis.get(prefixed(sid))
+  def load_session_from_redis(sid, env)
+    data = redis.get(prefixed(sid, env))
     begin
       data ? decode(data) : nil
     rescue => e
-      destroy_session_from_sid(sid, drop: true)
+      destroy_session_from_sid(sid, drop: true, env: env)
       on_session_load_error.call(e, sid) if on_session_load_error
       nil
     end
@@ -117,9 +117,9 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   def set_session(env, sid, session_data, options = nil)
     expiry = (options || env.fetch(ENV_SESSION_OPTIONS_KEY))[:expire_after]
     if expiry
-      redis.setex(prefixed(sid), expiry, encode(session_data))
+      redis.setex(prefixed(sid, env), expiry, encode(session_data))
     else
-      redis.set(prefixed(sid), encode(session_data))
+      redis.set(prefixed(sid, env), encode(session_data))
     end
     return sid
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
@@ -146,7 +146,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   end
 
   def destroy_session_from_sid(sid, options = {})
-    redis.del(prefixed(sid))
+    redis.del(prefixed(sid, options[:env]))
     (options || {})[:drop] ? nil : generate_sid
   rescue Errno::ECONNREFUSED, Redis::CannotConnectError => e
     on_redis_down.call(e, options[:env] || {}, sid) if on_redis_down
