@@ -83,7 +83,7 @@ class RedisSessionStore < ActionDispatch::Session::AbstractStore
   end
 
   def prefixed(sid, env)
-    "#{default_options[:key_prefix]}#{env.remote_ip}:#{sid}"
+    "#{default_options[:key_prefix]}#{env['action_dispatch.remote_ip'].calculate_ip}:#{sid}"
   end
 
   def get_session(env, sid)
